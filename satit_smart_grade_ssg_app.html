@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Satit Smart Grade (SSG)</title>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    body { font-family: 'Prompt', sans-serif; }
+    .loader { border: 4px solid #e5e7eb; border-top: 4px solid #db2777; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    
+    .sarabun-font { font-family: 'Sarabun', sans-serif; color: #000; }
+    #pp6-export-area { box-sizing: border-box; width: 210mm; min-height: 297mm; max-height: 297mm; overflow: hidden; background-color: white; margin: 0 auto; padding: 10mm 15mm; }
+    
+    table.official-table { border-collapse: collapse; width: 100%; }
+    table.official-table th, table.official-table td { border: 1px solid #000; padding: 0px 4px; font-size: 13px !important; }
+    .vertical-text { writing-mode: vertical-rl; transform: rotate(180deg); text-align: center; white-space: nowrap; }
+    
+    /* Custom Canvas Styling */
+    canvas {
+      background: linear-gradient(135deg, #fdf2f8 0%, #fae8ff 100%);
+      display: block;
+      width: 100%;
+      max-width: 600px;
+      height: 250px;
+      margin: 0 auto;
+      border-radius: 0.75rem;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+    
+    @media print {
+      body * { visibility: hidden; }
+      #student-panel, #stu-pp6-section { display: block !important; }
+      #pp6-export-area, #pp6-export-area * { visibility: visible; }
+      #pp6-export-area { position: absolute; left: 0; top: 0; width: 210mm; transform: none !important; margin: 0 !important; box-shadow: none !important; }
+      @page { size: A4 portrait; margin: 0; }
+    }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen text-gray-800">
+
+  <div id="loading" class="fixed inset-0 bg-white/80 z-50 flex flex-col justify-center items-center hidden">
+    <div class="loader mb-4"></div><p class="text-pink-600 font-medium">กำลังประมวลผล...</p>
+  </div>
+
+  <!-- LOGIN SECTION -->
+  <div id="login-section" class="flex min-h-screen items-center justify-center p-4">
+    <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border-t-4 border-pink-600">
+      <div class="text-center mb-6">
+        <h1 class="text-2xl font-bold text-gray-800 mb-1">Satit Smart Grade (SSG)</h1>
+        <p class="text-gray-500 text-sm mb-4">ระบบจัดการ ปพ.6 และผลการเรียนอัจฉริยะ</p>
+        
+        <!-- Interactive Canvas Branding Preview -->
+        <canvas id="brandCanvas" width="600" height="250"></canvas>
+      </div>
+      <form onsubmit="handleLogin(event)">
+        <div class="mb-4">
+          <label class="block text-gray-700 text-sm font-semibold mb-2">รหัสผู้ใช้งาน</label>
+          <input type="text" id="username" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 bg-gray-50">
+        </div>
+        <div class="mb-6">
+          <label class="block text-gray-700 text-sm font-semibold mb-2">รหัสผ่าน</label>
+          <input type="password" id="password" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 bg-gray-50">
+        </div>
+        <button type="submit" class="w-full bg-pink-600 hover:bg-pink-700 text-white font-bold py-3 rounded-lg shadow-md transition">เข้าสู่ระบบ</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="dashboard-section" class="hidden min-h-screen p-4 md:p-8 max-w-6xl mx-auto">
+    <div class="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm mb-6 border-b-2 border-pink-100">
+      <div>
+        <h2 class="text-xl font-bold text-gray-700">สวัสดี, <span id="user-name" class="text-pink-600"></span></h2>
+        <span id="user-role-badge" class="inline-block mt-1 px-3 py-1 bg-gray-200 text-gray-600 text-xs rounded-full font-bold"></span>
+      </div>
+      <button onclick="logout()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-lg font-medium shadow-sm border border-gray-200 transition">ออกจากระบบ</button>
+    </div>
+
+    <!-- TEACHER PANEL -->
+    <div id="teacher-panel" class="hidden bg-white p-6 rounded-xl shadow-sm mb-6 border-t-4 border-pink-500">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 items-end">
+        <div><label class="text-sm text-gray-600 font-bold mb-1 block">ภาคเรียน</label><select id="term-select" class="border border-gray-300 p-2 rounded-lg w-full"><option value="1/2569">ภาคเรียนที่ 1/2569</option></select></div>
+        <div><label class="text-sm text-gray-600 font-bold mb-1 block">ระดับชั้น</label><select id="class-select" class="border border-gray-300 p-2 rounded-lg w-full"></select></div>
+        <div><label class="text-sm text-gray-600 font-bold mb-1 block">ค้นหาวิชา</label><input type="text" id="search-subject" placeholder="🔍 พิมพ์รหัสหรือชื่อ..." class="border border-gray-300 p-2 rounded-lg w-full"></div>
+        <div><label class="text-sm text-gray-600 font-bold mb-1 block">เลือกรายวิชา</label><select id="subject-select" class="border border-gray-300 p-2 rounded-lg w-full"></select></div>
+      </div>
+      <div class="flex justify-end mb-4"><button onclick="loadClassList()" class="bg-gray-800 hover:bg-gray-900 text-white px-6 py-2 rounded-lg font-bold shadow-md w-full md:w-auto transition">ดึงรายชื่อนักเรียน</button></div>
+      
+      <div class="overflow-x-auto mt-2">
+        <table class="min-w-full text-left text-sm border border-gray-200 hidden" id="grading-table">
+          <thead class="bg-gray-100 uppercase text-gray-700" id="grading-thead"></thead>
+          <tbody id="grading-tbody" class="divide-y divide-gray-200"></tbody>
+        </table>
+      </div>
+      <button id="save-grades-btn" onclick="saveGrades()" class="mt-4 bg-pink-600 hover:bg-pink-700 text-white px-6 py-3 rounded-lg font-bold hidden w-full md:w-auto shadow-md">บันทึกคะแนนทั้งห้อง</button>
+    </div>
+
+    <!-- STUDENT PANEL -->
+    <div id="student-panel" class="hidden">
+      <div class="bg-white p-6 rounded-xl shadow-sm border-l-4 border-pink-500 mb-6 flex justify-between items-center">
+        <div><p class="text-sm text-gray-500 font-bold">เกรดเฉลี่ยสะสม (GPAX)</p></div>
+        <div id="stu-gpax" class="text-4xl text-pink-600 font-bold">0.00</div>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+        <table class="min-w-full text-left text-sm border-collapse">
+          <thead class="bg-gray-100 text-gray-700 border-b-2 border-gray-200"><tr><th class="p-4 font-bold">รหัสวิชา</th><th class="p-4 font-bold">ชื่อวิชา</th><th class="p-4 font-bold text-center">คะแนนรวม</th><th class="p-4 font-bold text-center text-pink-600">เกรด</th></tr></thead>
+          <tbody id="stu-grades-tbody" class="divide-y divide-gray-200"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Supabase Configuration
+    const SUPABASE_URL = 'https://huxjwyefwvkulvkgbaar.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh1eGp3eWVmd3ZrdWx2a2diYWFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwMzE2NDcsImV4cCI6MjEwNzYwNzY0N30.1FGWx9q7-XrKsAtENjzaJAGJgCPNmuJUKWoDIbDiVNQ';
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    let appState = { user: null, config: {}, classes: [], subjects: [], currentStudents: [] };
+
+    function showLoading(s) { document.getElementById('loading').style.display = s ? 'flex' : 'none'; }
+
+    // Interactive Canvas Banner Animation
+    window.onload = function() {
+      const canvas = document.getElementById('brandCanvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      let angle = 0;
+
+      function drawCanvas() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Background Gradient
+        let grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+        grad.addColorStop(0, '#fdf2f8');
+        grad.addColorStop(1, '#fbcfe8');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Floating decorative circles
+        ctx.fillStyle = 'rgba(219, 39, 119, 0.15)';
+        ctx.beginPath();
+        ctx.arc(100 + Math.sin(angle) * 20, 80, 40, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = 'rgba(147, 51, 234, 0.12)';
+        ctx.beginPath();
+        ctx.arc(500 + Math.cos(angle) * 15, 180, 50, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Main Title Text
+        ctx.font = 'bold 22px Prompt, sans-serif';
+        ctx.fillStyle = '#db2777';
+        ctx.textAlign = 'center';
+        ctx.fillText('Satit Smart Grade (SSG)', canvas.width / 2, 85);
+
+        // Subtitle
+        ctx.font = '14px Prompt, sans-serif';
+        ctx.fillStyle = '#4b5563';
+        ctx.fillText('ระบบจัดการผลการเรียนและ ปพ.6 อัจฉริยะ', canvas.width / 2, 120);
+
+        // Status Badge
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
+        ctx.shadowBlur = 10;
+        ctx.fillRect(canvas.width / 2 - 90, 150, 180, 36);
+        ctx.shadowBlur = 0;
+
+        ctx.font = 'bold 13px Prompt, sans-serif';
+        ctx.fillStyle = '#059669';
+        ctx.fillText('● Supabase Connected', canvas.width / 2, 173);
+
+        angle += 0.03;
+        requestAnimationFrame(drawCanvas);
+      }
+
+      drawCanvas();
+    };
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      showLoading(true);
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value.trim();
+
+      try {
+        const { data: users, error } = await supabaseClient
+          .from('users')
+          .select('*')
+          .eq('studentId', username)
+          .eq('password', password);
+
+        if (error) throw error;
+        if (!users || users.length === 0) {
+          showLoading(false);
+          return Swal.fire('ผิดพลาด', 'รหัสผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง', 'error');
+        }
+
+        const u = users[0];
+        appState.user = { username: u.studentId, name: u.name, role: u.role, classRoom: u.classRoom, studentNo: u.studentNo };
+
+        const { data: subs } = await supabaseClient.from('subjects').select('*');
+        appState.subjects = subs || [];
+
+        const { data: allU } = await supabaseClient.from('users').select('classRoom').eq('role', 'student');
+        appState.classes = [...new Set((allU || []).map(x => x.classRoom))].sort();
+
+        showLoading(false);
+        setupUIFromSession();
+      } catch (err) {
+        showLoading(false);
+        Swal.fire('ข้อผิดพลาด', err.message, 'error');
+      }
+    }
+
+    function setupUIFromSession() {
+      document.getElementById('user-name').innerText = appState.user.name;
+      document.getElementById('user-role-badge').innerText = `Role: ${appState.user.role.toUpperCase()}`;
+      document.getElementById('login-section').classList.add('hidden');
+      document.getElementById('dashboard-section').classList.remove('hidden');
+
+      if (appState.user.role === 'teacher' || appState.user.role === 'admin') {
+        document.getElementById('teacher-panel').classList.remove('hidden');
+        const classSelect = document.getElementById('class-select');
+        classSelect.innerHTML = '<option value="">-- เลือกชั้นเรียน --</option>' + appState.classes.map(c => `<option value="${c}">${c}</option>`).join('');
+        
+        const subSelect = document.getElementById('subject-select');
+        subSelect.innerHTML = '<option value="">-- เลือกวิชา --</option>' + appState.subjects.map(s => `<option value="${s.subjectCode}">[${s.subjectCode}] ${s.subjectName}</option>`).join('');
+      } else if (appState.user.role === 'student') {
+        document.getElementById('student-panel').classList.remove('hidden');
+        loadStudentGrades();
+      }
+    }
+
+    async function loadClassList() {
+      const classRoom = document.getElementById('class-select').value;
+      const subjectCode = document.getElementById('subject-select').value;
+      if (!classRoom || !subjectCode) return Swal.fire('แจ้งเตือน', 'กรุณาเลือกชั้นและวิชาให้ครบถ้วน', 'warning');
+
+      showLoading(true);
+      try {
+        const { data: students } = await supabaseClient.from('users').select('*').eq('classRoom', classRoom).eq('role', 'student');
+        const { data: grades } = await supabaseClient.from('grades').select('*').eq('subjectCode', subjectCode);
+
+        let gradeMap = {};
+        (grades || []).forEach(g => { gradeMap[g.studentId] = g; });
+
+        appState.currentStudents = (students || []).map(st => ({
+          studentId: st.studentId,
+          name: st.name,
+          studentNo: st.studentNo || '1',
+          totalScore: gradeMap[st.studentId]?.totalScore || 0,
+          grade: gradeMap[st.studentId]?.grade || '0'
+        })).sort((a,b) => Number(a.studentNo) - Number(b.studentNo));
+
+        renderGradingTable();
+        showLoading(false);
+      } catch (err) {
+        showLoading(false);
+        Swal.fire('Error', err.message, 'error');
+      }
+    }
+
+    function renderGradingTable() {
+      document.getElementById('grading-table').classList.remove('hidden');
+      document.getElementById('save-grades-btn').classList.remove('hidden');
+      
+      let ths = `<tr><th class="p-2 border-b text-center w-12">เลขที่</th><th class="p-2 border-b">รหัส</th><th class="p-2 border-b">ชื่อ</th><th class="p-2 text-center border-b">คะแนนรวม</th><th class="p-2 text-center border-b">เกรด</th></tr>`;
+      document.getElementById('grading-thead').innerHTML = ths;
+
+      document.getElementById('grading-tbody').innerHTML = appState.currentStudents.map(st => `
+        <tr class="hover:bg-gray-50">
+          <td class="p-2 text-center font-bold">${st.studentNo}</td>
+          <td class="p-2">${st.studentId}</td>
+          <td class="p-2">${st.name}</td>
+          <td class="p-2 text-center"><input type="number" id="score-${st.studentId}" value="${st.totalScore}" oninput="calcGrade('${st.studentId}')" class="border rounded p-1 w-20 text-center"></td>
+          <td class="p-2 text-center font-bold text-pink-600" id="grade-${st.studentId}">${st.grade}</td>
+        </tr>
+      `).join('');
+    }
+
+    function calcGrade(stId) {
+      let score = Number(document.getElementById(`score-${stId}`).value) || 0;
+      let grade = score>=80?'4':score>=75?'3.5':score>=70?'3':score>=65?'2.5':score>=60?'2':score>=55?'1.5':score>=50?'1':'0';
+      document.getElementById(`grade-${stId}`).innerText = grade;
+    }
+
+    async function saveGrades() {
+      const subjectCode = document.getElementById('subject-select').value;
+      showLoading(true);
+      try {
+        for (let st of appState.currentStudents) {
+          let score = Number(document.getElementById(`score-${st.studentId}`).value) || 0;
+          let grade = document.getElementById(`grade-${st.studentId}`).innerText;
+
+          await supabaseClient.from('grades').upsert({
+            studentId: st.studentId,
+            subjectCode: subjectCode,
+            totalScore: score,
+            grade: grade,
+            timestamp: new Date().toISOString()
+          }, { onConflict: 'studentId,subjectCode' });
+        }
+        showLoading(false);
+        Swal.fire('สำเร็จ', 'บันทึกคะแนนเรียบร้อยแล้ว', 'success');
+      } catch (err) {
+        showLoading(false);
+        Swal.fire('Error', err.message, 'error');
+      }
+    }
+
+    async function loadStudentGrades() {
+      showLoading(true);
+      try {
+        const { data: grades } = await supabaseClient.from('grades').select('*').eq('studentId', appState.user.username);
+        let html = '';
+        let totalGrade = 0;
+        
+        (grades || []).forEach(g => {
+          let sub = appState.subjects.find(s => s.subjectCode === g.subjectCode) || { subjectName: g.subjectCode };
+          let gNum = Number(g.grade) || 0;
+          totalGrade += gNum;
+          html += `<tr class="hover:bg-gray-50"><td class="p-4 border-b">${g.subjectCode}</td><td class="p-4 border-b">${sub.subjectName}</td><td class="p-4 border-b text-center">${g.totalScore}</td><td class="p-4 border-b text-center font-bold text-pink-600">${g.grade}</td></tr>`;
+        });
+
+        document.getElementById('stu-grades-tbody').innerHTML = html;
+        let gpax = grades && grades.length > 0 ? (totalGrade / grades.length).toFixed(2) : "0.00";
+        document.getElementById('stu-gpax').innerText = gpax;
+        showLoading(false);
+      } catch (err) {
+        showLoading(false);
+        Swal.fire('Error', err.message, 'error');
+      }
+    }
+
+    function logout() {
+      localStorage.clear();
+      location.reload();
+    }
+  </script>
+</body>
+</html>
